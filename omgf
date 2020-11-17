@@ -420,7 +420,10 @@ function main {
   function validate_dev {
     if ! git_local_branch_exists "$OMGF_DEV"; then
       [[ $conform == 0 ]] && { err "Missing branch '$OMGF_DEV'" || return 3; }
-      git_branch_create dev master || return 1
+      git_branch_create "$OMGF_DEV" master \
+        && git_checkout "$OMGF_DEV" \
+        && gf_increment_minor \
+        || return 1
     fi
     local last_change
     last_change="$(master_last_change)"
@@ -626,11 +629,6 @@ function main {
     [[ $confirmed == 0 ]] \
       && { confirm "* Create branch '$RELEASE' from current HEAD?" || return 0; }
     git_checkout_branch "$RELEASE"
-    ((minor++))
-    patch=0
-    gf_commit_version \
-      && load_version \
-      && gf_update_changelog_header
   }
 
   function gf_feature {
@@ -682,18 +680,27 @@ function main {
     merge_branches "$gf_branch" "$OMGF_DEV" || return $?
   }
 
+  function gf_increment_minor {
+    ((minor++))
+    patch=0
+    gf_commit_version \
+      && load_version
+  }
+
   function gf_release_release {
     local confirm_suffix
     [[ $request == 1 ]] && confirm_suffix="$pr_suffix" || confirm_suffix=
     confirm "* Create stable branch from release$confirm_suffix?" || return 0
     merge_branches master "$gf_branch" || return $?
     [[ $request == 1 ]] && { gf_request master; return $?; }
-    git_checkout master \
+    gf_update_changelog_header \
+      && git_checkout master \
       && merge_branches "$gf_branch" "$OMGF_DEV" \
       && merge_branches "$gf_branch" master \
       && git_tag "$master".0 \
       && delete_gf_branch \
       && git_checkout "$OMGF_DEV" \
+      && gf_increment_minor \
       || return $?
   }
 
@@ -928,12 +935,11 @@ function main {
           && gf_version_ignore_merge "$RELEASE" \
           || return $?
       else
-        merge_branches "$gf_branch" "$OMGF_DEV" || return $?
+        gf_version_ignore_merge "$gf_branch" "$OMGF_DEV" || return $?
       fi
     fi
     delete_gf_branch
   }
-
 
   function gf_version_ignore_merge {
     local ecode
